@@ -46,6 +46,9 @@
       top: 0; left: 0; right: 0;
       z-index: 300;
       display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
       justify-content: center;
       padding: max(env(safe-area-inset-top, 16px), 16px) 20px 14px;
       pointer-events: none;
@@ -265,13 +268,30 @@
 
 <!-- Top bar -->
 <div class="top-bar">
-  <div class="seg">
+  <!-- Mode toggle -->
+  <div class="seg" id="seg-mode">
+    <input type="radio" name="mode" id="m-winner" value="winner" checked />
+    <label for="m-winner">Winner</label>
+    <input type="radio" name="mode" id="m-groups" value="groups" />
+    <label for="m-groups">Groups</label>
+  </div>
+  <!-- Winner count -->
+  <div class="seg" id="seg-count-winner">
     <input type="radio" name="w" id="w1" value="1" checked />
-    <label for="w1">1 winner</label>
+    <label for="w1">1</label>
     <input type="radio" name="w" id="w2" value="2" />
-    <label for="w2">2 winners</label>
+    <label for="w2">2</label>
     <input type="radio" name="w" id="w3" value="3" />
-    <label for="w3">3 winners</label>
+    <label for="w3">3</label>
+  </div>
+  <!-- Group count -->
+  <div class="seg" id="seg-count-groups" style="display:none">
+    <input type="radio" name="g" id="g2" value="2" checked />
+    <label for="g2">2 groups</label>
+    <input type="radio" name="g" id="g3" value="3" />
+    <label for="g3">3 groups</label>
+    <input type="radio" name="g" id="g4" value="4" />
+    <label for="g4">4 groups</label>
   </div>
 </div>
 
@@ -553,6 +573,24 @@ const SFX = (() => {
            unlock: () => ac() };
 })();
 
+/* ── Group palette (distinct team colors) ──────────────── */
+const GROUP_PALETTE = [
+  { bg: "#0A84FF", glow: "#0A84FF" }, // blue
+  { bg: "#FF9F0A", glow: "#FF9F0A" }, // orange
+  { bg: "#30D158", glow: "#30D158" }, // green
+  { bg: "#FF375F", glow: "#FF375F" }, // pink
+];
+
+function getMode() {
+  return document.querySelector("input[name='mode']:checked").value;
+}
+function getWinnerCount() {
+  return parseInt(document.querySelector("input[name='w']:checked").value);
+}
+function getGroupCount() {
+  return parseInt(document.querySelector("input[name='g']:checked").value);
+}
+
 /* ── Palette (iOS system colors) ───────────────────────── */
 const PALETTE = [
   { bg: "#0A84FF", glow: "#0A84FF" }, // blue
@@ -723,28 +761,43 @@ function startScramble() {
   showTimer(false);
 
   const arr = Array.from(touches.values());
-
-  // Determine winners
-  const count = Math.min(
-    parseInt(document.querySelector("input[name='w']:checked").value),
-    arr.length
-  );
+  const mode = getMode();
   const shuffled = arr.slice().sort(() => Math.random() - 0.5);
-  const winIds = new Set(shuffled.slice(0, count).map(t => t.id));
 
-  if (arr.length === 1) { reveal(winIds); return; }
+  // Determine result based on mode
+  let winIds, groupMap;
+  if (mode === 'groups') {
+    const nGroups = Math.min(getGroupCount(), arr.length);
+    groupMap = new Map();
+    shuffled.forEach((t, i) => groupMap.set(t.id, i % nGroups));
+  } else {
+    const count = Math.min(getWinnerCount(), arr.length);
+    winIds = new Set(shuffled.slice(0, count).map(t => t.id));
+  }
 
-  // Build flash sequence (random bouncing, ends on first winner)
+  if (arr.length === 1) {
+    if (mode === 'groups') revealGroups(groupMap);
+    else reveal(winIds);
+    return;
+  }
+
+  // Build flash sequence (random bouncing, ends on first in result)
   const flashes = 10;
   const seq = [];
   for (let i = 0; i < flashes - 1; i++) {
     seq.push(arr[Math.floor(Math.random() * arr.length)]);
   }
-  seq.push(shuffled[0]); // land on winner
+  seq.push(shuffled[0]); // land on first winner / first of group 0
 
   let i = 0;
   function flash() {
-    if (i >= seq.length) { setTimeout(() => reveal(winIds), 180); return; }
+    if (i >= seq.length) {
+      setTimeout(() => {
+        if (mode === 'groups') revealGroups(groupMap);
+        else reveal(winIds);
+      }, 180);
+      return;
+    }
     // Dim all, highlight current
     arr.forEach(t => {
       t.el.querySelector(".core").style.filter = "brightness(0.35)";
@@ -761,6 +814,37 @@ function startScramble() {
     scrambleTimeout = setTimeout(flash, delay);
   }
   flash();
+}
+
+function revealGroups(groupMap) {
+  state = S.DONE;
+  const labels = ["Team A", "Team B", "Team C", "Team D"];
+
+  SFX.win();
+
+  touches.forEach(t => {
+    t.el.querySelector(".core").style.filter = "";
+    const gi = groupMap.get(t.id);
+    const gp = GROUP_PALETTE[gi];
+
+    t.el.querySelector(".core").style.background = gp.bg;
+    t.el.querySelector(".core").style.boxShadow =
+      `0 0 80px ${gp.glow}bb, 0 0 24px ${gp.glow}88, inset 0 1px 0 rgba(255,255,255,0.32)`;
+    t.el.querySelector(".pulse").style.color = gp.glow;
+    t.el.style.filter = `drop-shadow(0 0 40px ${gp.glow}dd)`;
+    t.el.style.animation = "blobWin 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards";
+
+    setTimeout(() => spawnParticles(t.x, t.y, gp.glow, 18), 280);
+
+    const lbl = document.createElement("div");
+    lbl.className = "win-label";
+    lbl.style.left = t.x + "px";
+    lbl.style.top  = t.y + "px";
+    lbl.textContent = labels[gi] ?? `Team ${gi + 1}`;
+    document.body.appendChild(lbl);
+  });
+
+  setTimeout(() => hint.classList.add("show"), 1100);
 }
 
 function reveal(winIds) {
@@ -817,10 +901,20 @@ function reset() {
   hero.style.opacity = "1";
 }
 
-/* ── Seg control: absorb all touch events so they never reach the game ── */
-const segEl = document.querySelector(".seg");
-["touchstart","touchend","touchmove","touchcancel"].forEach(ev => {
-  segEl.addEventListener(ev, e => { e.stopPropagation(); }, { passive: true });
+/* ── Seg controls: absorb all touch events so they never reach the game ── */
+document.querySelectorAll(".seg").forEach(seg => {
+  ["touchstart","touchend","touchmove","touchcancel"].forEach(ev => {
+    seg.addEventListener(ev, e => { e.stopPropagation(); }, { passive: true });
+  });
+});
+
+/* ── Mode toggle: show/hide count segs ──────────────────── */
+document.querySelectorAll("input[name='mode']").forEach(el => {
+  el.addEventListener("change", () => {
+    const isGroups = el.value === 'groups';
+    document.getElementById("seg-count-winner").style.display = isGroups ? "none" : "inline-flex";
+    document.getElementById("seg-count-groups").style.display = isGroups ? "inline-flex" : "none";
+  });
 });
 
 /* ── Touch event handling ───────────────────────────────── */
