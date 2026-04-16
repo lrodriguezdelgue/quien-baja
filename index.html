@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Pick" />
+  <meta name="theme-color" content="#08080f" />
+  <link rel="apple-touch-icon" href="icon.png" />
+  <title>Pick</title>
+  <style>
+    *, *::before, *::after {
+      margin: 0; padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #08080f;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+      color: #fff;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      position: fixed;
+      inset: 0;
+    }
+
+    /* ─── Background canvas ─── */
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ─── Top bar ─── */
+    .top-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 300;
+      display: flex;
+      justify-content: center;
+      padding: max(env(safe-area-inset-top, 16px), 16px) 20px 14px;
+      pointer-events: none;
+    }
+
+    /* Segmented control — Apple style */
+    .seg {
+      display: inline-flex;
+      background: rgba(255,255,255,0.07);
+      backdrop-filter: blur(28px) saturate(200%);
+      -webkit-backdrop-filter: blur(28px) saturate(200%);
+      border: 1px solid rgba(255,255,255,0.11);
+      border-radius: 50px;
+      padding: 3px;
+      gap: 2px;
+      pointer-events: all;
+    }
+
+    .seg input[type="radio"] { display: none; }
+
+    .seg label {
+      padding: 7px 18px;
+      border-radius: 50px;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.45);
+      cursor: pointer;
+      transition: color 0.2s ease, background 0.2s ease;
+      white-space: nowrap;
+      letter-spacing: -0.1px;
+    }
+
+    .seg input:checked + label {
+      background: rgba(255,255,255,0.17);
+      color: #fff;
+    }
+
+    /* ─── Hero ─── */
+    #hero {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      pointer-events: none;
+      gap: 10px;
+      padding-bottom: 60px;
+      transition: opacity 0.4s ease;
+    }
+
+    #logo-svg {
+      width: 86px; height: 86px;
+      filter: drop-shadow(0 0 20px rgba(123,111,255,0.6));
+    }
+
+    #hero h1 {
+      font-size: clamp(36px, 8vw, 52px);
+      font-weight: 700;
+      letter-spacing: -1.5px;
+      line-height: 1;
+      background: linear-gradient(140deg, #ffffff 30%, #9b8fff 75%, #5AC8FA 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    #hero p {
+      font-size: 17px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.45);
+      letter-spacing: -0.2px;
+    }
+
+    /* ─── Timer ring ─── */
+    #timer-wrap {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 20;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    #timer-svg { transform: rotate(-90deg); }
+
+    #t-track {
+      fill: none;
+      stroke: rgba(255,255,255,0.07);
+      stroke-width: 2.5;
+    }
+
+    #t-fill {
+      fill: none;
+      stroke: rgba(255,255,255,0.55);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-dasharray: 219.91;   /* 2π × 35 */
+      stroke-dashoffset: 219.91;
+    }
+
+    /* ─── Touch blobs ─── */
+    .blob {
+      position: fixed;
+      width: 90px; height: 90px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      z-index: 50;
+      pointer-events: none;
+      will-change: transform, opacity;
+    }
+
+    .blob .core {
+      width: 100%; height: 100%;
+      border-radius: 50%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Gloss shine */
+    .blob .core::after {
+      content: '';
+      position: absolute;
+      top: 8px; left: 18px; right: 18px;
+      height: 28%;
+      background: rgba(255,255,255,0.22);
+      border-radius: 50%;
+      filter: blur(4px);
+    }
+
+    .blob .pulse {
+      position: absolute;
+      inset: -14px;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      animation: pulseRing 2s ease-out infinite;
+    }
+
+    @keyframes pulseRing {
+      0%   { transform: scale(0.85); opacity: 0.55; }
+      100% { transform: scale(1.45); opacity: 0; }
+    }
+
+    /* Spawn */
+    @keyframes blobSpawn {
+      from { transform: translate(-50%,-50%) scale(0); opacity: 0; }
+      to   { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+    }
+
+    /* Win */
+    @keyframes blobWin {
+      0%   { transform: translate(-50%,-50%) scale(1); }
+      35%  { transform: translate(-50%,-50%) scale(1.65); }
+      55%  { transform: translate(-50%,-50%) scale(1.48); }
+      75%  { transform: translate(-50%,-50%) scale(1.56); }
+      100% { transform: translate(-50%,-50%) scale(1.52); }
+    }
+
+    /* Lose */
+    @keyframes blobLose {
+      to { transform: translate(-50%,-50%) scale(0); opacity: 0; }
+    }
+
+    /* ─── Winner label ─── */
+    .win-label {
+      position: fixed;
+      transform: translate(-50%, calc(-50% + 64px));
+      z-index: 51;
+      pointer-events: none;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: #fff;
+      opacity: 0;
+      animation: labelPop 0.45s cubic-bezier(0.34,1.56,0.64,1) 0.55s forwards;
+    }
+
+    @keyframes labelPop {
+      from { opacity: 0; transform: translate(-50%, calc(-50% + 82px)) scale(0.7); }
+      to   { opacity: 1; transform: translate(-50%, calc(-50% + 64px)) scale(1); }
+    }
+
+    /* ─── Bottom hint ─── */
+    #hint {
+      position: fixed;
+      bottom: max(env(safe-area-inset-bottom, 0px), 34px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 300;
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.38);
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    #hint.show { opacity: 1; }
+
+    /* ─── Particle canvas ─── */
+    #p-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 45;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Animated ambient background -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- Top bar -->
+<div class="top-bar">
+  <div class="seg">
+    <input type="radio" name="w" id="w1" value="1" checked />
+    <label for="w1">1 winner</label>
+    <input type="radio" name="w" id="w2" value="2" />
+    <label for="w2">2 winners</label>
+    <input type="radio" name="w" id="w3" value="3" />
+    <label for="w3">3 winners</label>
+  </div>
+</div>
+
+<!-- Hero text -->
+<div id="hero">
+  <svg id="logo-svg" viewBox="0 0 82 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="lg1" x1="0" y1="0" x2="82" y2="82" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#7B6FFF"/>
+      </linearGradient>
+      <radialGradient id="rg1" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#5AC8FA" stop-opacity="0"/>
+      </radialGradient>
+      <filter id="f-glow" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="2.5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="f-glow2" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur stdDeviation="5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <!-- Outer segmented ring -->
+    <circle cx="41" cy="41" r="37" stroke="url(#lg1)" stroke-width="1.5" stroke-dasharray="22 8" stroke-dashoffset="-4" fill="none" opacity="0.55"/>
+    <!-- Mid ring -->
+    <circle cx="41" cy="41" r="26" stroke="rgba(255,255,255,0.15)" stroke-width="1" fill="none"/>
+    <!-- Cardinal ticks -->
+    <line x1="41" y1="2"  x2="41" y2="11" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+    <line x1="41" y1="71" x2="41" y2="80" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+    <line x1="2"  y1="41" x2="11" y2="41" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+    <line x1="71" y1="41" x2="80" y2="41" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+    <!-- Spokes to player dots (dim) -->
+    <line x1="41" y1="41" x2="41"    y2="18"   stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <line x1="41" y1="41" x2="61.5" y2="30.5" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <line x1="41" y1="41" x2="53.8" y2="54.2" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <line x1="41" y1="41" x2="28.2" y2="54.2" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <line x1="41" y1="41" x2="20.5" y2="30.5" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>
+    <!-- Bright spoke to winner -->
+    <line x1="41" y1="41" x2="41" y2="19" stroke="url(#lg1)" stroke-width="1.5" opacity="0.85"/>
+    <!-- 5 player dots (pentagon) -->
+    <circle cx="41"   cy="15.5" r="3" fill="rgba(255,255,255,0.22)"/>
+    <circle cx="62"   cy="28.5" r="3" fill="rgba(255,255,255,0.22)"/>
+    <circle cx="54.5" cy="55"   r="3" fill="rgba(255,255,255,0.22)"/>
+    <circle cx="27.5" cy="55"   r="3" fill="rgba(255,255,255,0.22)"/>
+    <circle cx="20"   cy="28.5" r="3" fill="rgba(255,255,255,0.22)"/>
+    <!-- Winner dot — glowing purple -->
+    <circle cx="41" cy="15.5" r="5.5" fill="#7B6FFF" filter="url(#f-glow2)"/>
+    <circle cx="41" cy="15.5" r="3" fill="white" filter="url(#f-glow)"/>
+    <!-- Center -->
+    <circle cx="41" cy="41" r="6" fill="url(#rg1)" filter="url(#f-glow)"/>
+    <circle cx="41" cy="41" r="2.5" fill="white"/>
+  </svg>
+  <h1>Pick</h1>
+  <p>Place your fingers on the screen</p>
+</div>
+
+<!-- Countdown ring -->
+<div id="timer-wrap">
+  <svg id="timer-svg" width="80" height="80" viewBox="0 0 80 80">
+    <circle id="t-track" cx="40" cy="40" r="35" />
+    <circle id="t-fill"  cx="40" cy="40" r="35" />
+  </svg>
+</div>
+
+<!-- Particle canvas -->
+<canvas id="p-canvas"></canvas>
+
+<!-- Reset hint -->
+<div id="hint">Tap anywhere to play again</div>
+
+<script>
+"use strict";
+
+/* ── Audio Engine (Web Audio API, procedural) ───────────── */
+const SFX = (() => {
+  let _ctx = null;
+
+  function ac() {
+    if (!_ctx) {
+      _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_ctx.state !== 'running') _ctx.resume();
+    return _ctx;
+  }
+
+  function out(vol = 0.5) {
+    const a = ac(), g = a.createGain();
+    g.gain.value = vol;
+    g.connect(a.destination);
+    return g;
+  }
+
+  let _noiseBuf = null;
+  function noise() {
+    if (_noiseBuf) return _noiseBuf;
+    const a = ac(), n = a.sampleRate * 0.6;
+    _noiseBuf = a.createBuffer(1, n, a.sampleRate);
+    const d = _noiseBuf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    return _noiseBuf;
+  }
+
+  /* spawn — metallic sci-fi tap when finger lands */
+  function spawn() {
+    const a = ac(), t = a.currentTime, m = out(0.26);
+
+    // Metallic body — triangle swept through bandpass
+    const o1 = a.createOscillator(), e1 = a.createGain(), bp = a.createBiquadFilter();
+    o1.type = 'triangle';
+    o1.frequency.setValueAtTime(1100, t);
+    o1.frequency.exponentialRampToValueAtTime(340, t + 0.09);
+    bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+    e1.gain.setValueAtTime(0.85, t);
+    e1.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    o1.connect(bp); bp.connect(e1); e1.connect(m);
+    o1.start(t); o1.stop(t + 0.13);
+
+    // High digital ping
+    const o2 = a.createOscillator(), e2 = a.createGain();
+    o2.type = 'sine';
+    o2.frequency.setValueAtTime(3400, t);
+    o2.frequency.exponentialRampToValueAtTime(1800, t + 0.05);
+    e2.gain.setValueAtTime(0.35, t);
+    e2.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    o2.connect(e2); e2.connect(m);
+    o2.start(t); o2.stop(t + 0.09);
+
+    // White noise transient
+    const ns = a.createBufferSource(), ne = a.createGain(), nh = a.createBiquadFilter();
+    ns.buffer = noise();
+    nh.type = 'highpass'; nh.frequency.value = 3200;
+    ne.gain.setValueAtTime(0.22, t);
+    ne.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    ns.connect(nh); nh.connect(ne); ne.connect(m);
+    ns.start(t); ns.stop(t + 0.06);
+  }
+
+  /* countdown ambient — building sub drone + harmonic tension */
+  let _droneNodes = null;
+  function startAmbient() {
+    stopAmbient();
+    const a = ac(), t = a.currentTime, m = out(0.16);
+
+    // Sub sine
+    const sub = a.createOscillator(), subE = a.createGain();
+    sub.type = 'sine'; sub.frequency.value = 55;
+    subE.gain.setValueAtTime(0, t);
+    subE.gain.linearRampToValueAtTime(0.75, t + 0.5);
+    sub.connect(subE); subE.connect(m); sub.start(t);
+
+    // Filtered sawtooth harmonic
+    const saw = a.createOscillator(), sawE = a.createGain();
+    const lp = a.createBiquadFilter(), hp2 = a.createBiquadFilter();
+    saw.type = 'sawtooth'; saw.frequency.value = 110;
+    lp.type = 'lowpass'; lp.frequency.value = 380;
+    hp2.type = 'highpass'; hp2.frequency.value = 80;
+    sawE.gain.setValueAtTime(0, t);
+    sawE.gain.linearRampToValueAtTime(0.07, t + 0.7);
+    saw.connect(hp2); hp2.connect(lp); lp.connect(sawE); sawE.connect(m); saw.start(t);
+
+    _droneNodes = { sub, saw, subE, sawE };
+  }
+
+  function stopAmbient() {
+    if (!_droneNodes) return;
+    const a = ac(), now = a.currentTime;
+    const { sub, saw, subE, sawE } = _droneNodes;
+    [subE, sawE].forEach(e => {
+      e.gain.cancelScheduledValues(now);
+      e.gain.setValueAtTime(e.gain.value, now);
+      e.gain.linearRampToValueAtTime(0, now + 0.18);
+    });
+    setTimeout(() => { try { sub.stop(); saw.stop(); } catch(_){} }, 250);
+    _droneNodes = null;
+  }
+
+  /* tick — radar ping, called 3× during countdown */
+  function tick() {
+    const a = ac(), t = a.currentTime, m = out(0.32);
+    const o = a.createOscillator(), e = a.createGain(), bp2 = a.createBiquadFilter();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(680, t);
+    o.frequency.exponentialRampToValueAtTime(440, t + 0.18);
+    bp2.type = 'bandpass'; bp2.frequency.value = 580; bp2.Q.value = 9;
+    e.gain.setValueAtTime(0.75, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    o.connect(bp2); bp2.connect(e); e.connect(m);
+    o.start(t); o.stop(t + 0.3);
+  }
+
+  /* flash — scramble hop (pitch rises toward end) */
+  function flash(step, total) {
+    const a = ac(), t = a.currentTime, m = out(0.18);
+    const progress = step / Math.max(1, total - 1);
+    const freq = 320 + progress * 780;
+    const o = a.createOscillator(), e = a.createGain(), bp3 = a.createBiquadFilter();
+    o.type = 'square';
+    o.frequency.setValueAtTime(freq, t);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.55, t + 0.04);
+    bp3.type = 'bandpass'; bp3.frequency.value = freq; bp3.Q.value = 5;
+    e.gain.setValueAtTime(0.55, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.055);
+    o.connect(bp3); bp3.connect(e); e.connect(m);
+    o.start(t); o.stop(t + 0.07);
+  }
+
+  /* win — ascending arc-raiders-style fanfare with reverb tail */
+  function win() {
+    const a = ac(), t = a.currentTime, m = out(0.42);
+
+    // Arpeggio E4 B4 E5 G#5
+    [329.63, 493.88, 659.25, 830.61].forEach((freq, i) => {
+      const o = a.createOscillator(), e = a.createGain();
+      const t0 = t + i * 0.12;
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(freq, t0);
+      e.gain.setValueAtTime(0, t0);
+      e.gain.linearRampToValueAtTime(0.52, t0 + 0.025);
+      e.gain.exponentialRampToValueAtTime(0.001, t0 + 0.7);
+      o.connect(e); e.connect(m);
+      o.start(t0); o.stop(t0 + 0.75);
+    });
+
+    // Sub thump
+    const sub2 = a.createOscillator(), subE2 = a.createGain();
+    sub2.type = 'sine';
+    sub2.frequency.setValueAtTime(90, t);
+    sub2.frequency.exponentialRampToValueAtTime(38, t + 0.32);
+    subE2.gain.setValueAtTime(0.95, t);
+    subE2.gain.exponentialRampToValueAtTime(0.001, t + 0.38);
+    sub2.connect(subE2); subE2.connect(m);
+    sub2.start(t); sub2.stop(t + 0.42);
+
+    // Metallic shimmer noise burst
+    const ns2 = a.createBufferSource(), ne2 = a.createGain(), nbp = a.createBiquadFilter();
+    ns2.buffer = noise();
+    nbp.type = 'bandpass'; nbp.frequency.value = 4500; nbp.Q.value = 1.8;
+    ne2.gain.setValueAtTime(0.28, t + 0.38);
+    ne2.gain.exponentialRampToValueAtTime(0.001, t + 0.82);
+    ns2.connect(nbp); nbp.connect(ne2); ne2.connect(m);
+    ns2.start(t + 0.38); ns2.stop(t + 0.9);
+
+    // Delay reverb simulation
+    const dly = a.createDelay(0.5), fb = a.createGain(), dm = out(0.13);
+    dly.delayTime.value = 0.16; fb.gain.value = 0.52;
+    dly.connect(fb); fb.connect(dly);
+    m.connect(dly); dly.connect(dm);
+  }
+
+  /* lose — descending dismissal tone */
+  function lose() {
+    const a = ac(), t = a.currentTime, m = out(0.18);
+    const o = a.createOscillator(), e = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(540, t);
+    o.frequency.exponentialRampToValueAtTime(110, t + 0.2);
+    e.gain.setValueAtTime(0.5, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    o.connect(e); e.connect(m);
+    o.start(t); o.stop(t + 0.28);
+  }
+
+  /* resetBlip — soft UI blip back to idle */
+  function resetBlip() {
+    const a = ac(), t = a.currentTime, m = out(0.18);
+    const o = a.createOscillator(), e = a.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(820, t);
+    o.frequency.exponentialRampToValueAtTime(580, t + 0.08);
+    e.gain.setValueAtTime(0.38, t);
+    e.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    o.connect(e); e.connect(m);
+    o.start(t); o.stop(t + 0.13);
+  }
+
+  return { spawn, startAmbient, stopAmbient, tick, flash, win, lose, resetBlip,
+           unlock: () => ac() };
+})();
+
+/* ── Palette (iOS system colors) ───────────────────────── */
+const PALETTE = [
+  { bg: "#0A84FF", glow: "#0A84FF" }, // blue
+  { bg: "#BF5AF2", glow: "#BF5AF2" }, // purple
+  { bg: "#FF375F", glow: "#FF375F" }, // pink
+  { bg: "#FF9F0A", glow: "#FF9F0A" }, // orange
+  { bg: "#30D158", glow: "#30D158" }, // green
+  { bg: "#5AC8FA", glow: "#5AC8FA" }, // teal
+  { bg: "#FFD60A", glow: "#FFD60A" }, // yellow
+  { bg: "#FF453A", glow: "#FF453A" }, // red
+  { bg: "#5E5CE6", glow: "#5E5CE6" }, // indigo
+  { bg: "#63E6BE", glow: "#63E6BE" }, // mint
+];
+
+/* ── State machine ──────────────────────────────────────── */
+const S = { IDLE: 0, COUNTING: 1, SCRAMBLE: 2, DONE: 3 };
+let state = S.IDLE;
+
+/* ── Touch registry ─────────────────────────────────────── */
+// Map<id, { id, x, y, el, colorIdx }>
+const touches = new Map();
+const usedColors = new Set();
+
+/* ── Timers / RAF ───────────────────────────────────────── */
+let countRaf = null;
+let countStart = 0;
+let scrambleTimeout = null;
+
+const COUNTDOWN_MS = 2200;
+const RESTART_WINDOW_MS = 1000; // restart countdown if new finger < this ms after start
+let tickTimers = [];
+function clearTickTimers() { tickTimers.forEach(clearTimeout); tickTimers = []; }
+
+/* ── DOM ─────────────────────────────────────────────────── */
+const hero      = document.getElementById("hero");
+const timerWrap = document.getElementById("timer-wrap");
+const tFill     = document.getElementById("t-fill");
+const hint      = document.getElementById("hint");
+const pCanvas   = document.getElementById("p-canvas");
+const bgCanvas  = document.getElementById("bg-canvas");
+const pCtx      = pCanvas.getContext("2d");
+const bgCtx     = bgCanvas.getContext("2d");
+const CIRC      = 2 * Math.PI * 35; // 219.91
+
+/* ── Resize ─────────────────────────────────────────────── */
+function resize() {
+  pCanvas.width  = bgCanvas.width  = window.innerWidth;
+  pCanvas.height = bgCanvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ── Animated background blobs ──────────────────────────── */
+const blobs = [
+  { x: 0.15, y: 0.20, r: 0.38, color: "rgba(110,35,190,0.18)", vx: 0.00018, vy: 0.00012 },
+  { x: 0.80, y: 0.15, r: 0.32, color: "rgba(0,90,255,0.14)",   vx:-0.00014, vy: 0.00016 },
+  { x: 0.55, y: 0.85, r: 0.30, color: "rgba(220,45,95,0.13)",  vx:-0.00012, vy:-0.00010 },
+  { x: 0.35, y: 0.55, r: 0.25, color: "rgba(0,160,120,0.10)",  vx: 0.00016, vy:-0.00014 },
+];
+
+function animateBg(ts) {
+  const W = bgCanvas.width, H = bgCanvas.height;
+  bgCtx.clearRect(0, 0, W, H);
+  for (const b of blobs) {
+    b.x += b.vx; b.y += b.vy;
+    if (b.x < 0 || b.x > 1) b.vx *= -1;
+    if (b.y < 0 || b.y > 1) b.vy *= -1;
+    const cx = b.x * W, cy = b.y * H, r = b.r * Math.min(W, H);
+    const g = bgCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, b.color);
+    g.addColorStop(1, "transparent");
+    bgCtx.fillStyle = g;
+    bgCtx.beginPath();
+    bgCtx.arc(cx, cy, r, 0, Math.PI * 2);
+    bgCtx.fill();
+  }
+  requestAnimationFrame(animateBg);
+}
+requestAnimationFrame(animateBg);
+
+/* ── Color management ───────────────────────────────────── */
+function acquireColor() {
+  for (let i = 0; i < PALETTE.length; i++) {
+    if (!usedColors.has(i)) { usedColors.add(i); return i; }
+  }
+  return 0;
+}
+function releaseColor(i) { usedColors.delete(i); }
+
+/* ── Create blob element ────────────────────────────────── */
+function createBlob(id, x, y, ci) {
+  const p = PALETTE[ci];
+  const el = document.createElement("div");
+  el.className = "blob";
+  el.style.left = x + "px";
+  el.style.top  = y + "px";
+  el.style.filter = `drop-shadow(0 0 18px ${p.glow}80)`;
+
+  const pulse = document.createElement("div");
+  pulse.className = "pulse";
+  pulse.style.color = p.glow;
+
+  const core = document.createElement("div");
+  core.className = "core";
+  core.style.cssText = `
+    background: ${p.bg};
+    box-shadow: 0 0 28px ${p.glow}70, 0 0 6px ${p.glow}40,
+                inset 0 1px 0 rgba(255,255,255,0.28);
+  `;
+
+  el.appendChild(pulse);
+  el.appendChild(core);
+  document.body.appendChild(el);
+  el.style.animation = "blobSpawn 0.38s cubic-bezier(0.34,1.56,0.64,1) forwards";
+  return el;
+}
+
+/* ── Timer helpers ──────────────────────────────────────── */
+function setTimer(progress) {
+  tFill.style.strokeDashoffset = CIRC * (1 - Math.max(0, Math.min(1, progress)));
+}
+function showTimer(v) {
+  timerWrap.style.opacity = v ? "1" : "0";
+  if (!v) setTimer(0);
+}
+
+/* ── Countdown ──────────────────────────────────────────── */
+function startCountdown(restart) {
+  if (state === S.DONE || state === S.SCRAMBLE) return;
+  if (state === S.COUNTING && !restart) return;
+
+  state = S.COUNTING;
+  countStart = performance.now();
+  cancelAnimationFrame(countRaf);
+  clearTickTimers();
+  SFX.stopAmbient();
+  SFX.startAmbient();
+  SFX.tick();
+  tickTimers.push(setTimeout(() => { if (state === S.COUNTING) SFX.tick(); }, 750));
+  tickTimers.push(setTimeout(() => { if (state === S.COUNTING) SFX.tick(); }, 1500));
+  showTimer(true);
+  hero.style.opacity = "0";
+
+  (function tick(now) {
+    if (state !== S.COUNTING) return;
+    const t = (now - countStart) / COUNTDOWN_MS;
+    setTimer(t);
+    if (t >= 1) startScramble();
+    else countRaf = requestAnimationFrame(tick);
+  })(performance.now());
+}
+
+function cancelCountdown() {
+  cancelAnimationFrame(countRaf);
+  clearTickTimers();
+  SFX.stopAmbient();
+  showTimer(false);
+  state = S.IDLE;
+  if (touches.size === 0) hero.style.opacity = "1";
+}
+
+/* ── Scramble + Reveal ──────────────────────────────────── */
+function startScramble() {
+  if (touches.size === 0) { cancelCountdown(); return; }
+  state = S.SCRAMBLE;
+  clearTickTimers();
+  SFX.stopAmbient();
+  showTimer(false);
+
+  const arr = Array.from(touches.values());
+
+  // Determine winners
+  const count = Math.min(
+    parseInt(document.querySelector("input[name='w']:checked").value),
+    arr.length
+  );
+  const shuffled = arr.slice().sort(() => Math.random() - 0.5);
+  const winIds = new Set(shuffled.slice(0, count).map(t => t.id));
+
+  if (arr.length === 1) { reveal(winIds); return; }
+
+  // Build flash sequence (random bouncing, ends on first winner)
+  const flashes = 10;
+  const seq = [];
+  for (let i = 0; i < flashes - 1; i++) {
+    seq.push(arr[Math.floor(Math.random() * arr.length)]);
+  }
+  seq.push(shuffled[0]); // land on winner
+
+  let i = 0;
+  function flash() {
+    if (i >= seq.length) { setTimeout(() => reveal(winIds), 180); return; }
+    // Dim all, highlight current
+    arr.forEach(t => {
+      t.el.querySelector(".core").style.filter = "brightness(0.35)";
+      t.el.style.filter = "none";
+    });
+    const cur = seq[i];
+    cur.el.querySelector(".core").style.filter = "brightness(1.45)";
+    cur.el.style.filter = `drop-shadow(0 0 22px ${PALETTE[cur.colorIdx].glow}cc)`;
+    SFX.flash(i, seq.length);
+
+    // Ease-out timing
+    const delay = 55 + i * 9;
+    i++;
+    scrambleTimeout = setTimeout(flash, delay);
+  }
+  flash();
+}
+
+function reveal(winIds) {
+  state = S.DONE;
+  let winSoundPlayed = false;
+
+  touches.forEach(t => {
+    // Reset scramble styles
+    t.el.querySelector(".core").style.filter = "";
+
+    if (winIds.has(t.id)) {
+      const p = PALETTE[t.colorIdx];
+      t.el.style.filter = `drop-shadow(0 0 40px ${p.glow}dd)`;
+      t.el.style.animation = "blobWin 0.7s cubic-bezier(0.34,1.56,0.64,1) forwards";
+      t.el.querySelector(".core").style.boxShadow =
+        `0 0 80px ${p.glow}bb, 0 0 24px ${p.glow}88, inset 0 1px 0 rgba(255,255,255,0.32)`;
+
+      if (!winSoundPlayed) { SFX.win(); winSoundPlayed = true; }
+
+      // Particles
+      setTimeout(() => spawnParticles(t.x, t.y, p.glow, 30), 280);
+
+      // "WINNER" label
+      const lbl = document.createElement("div");
+      lbl.className = "win-label";
+      lbl.style.left = t.x + "px";
+      lbl.style.top  = t.y + "px";
+      lbl.textContent = "✦  winner";
+      document.body.appendChild(lbl);
+    } else {
+      SFX.lose();
+      t.el.style.animation = "blobLose 0.42s ease 0.08s forwards";
+    }
+  });
+
+  setTimeout(() => hint.classList.add("show"), 1100);
+}
+
+/* ── Reset ───────────────────────────────────────────────── */
+function reset() {
+  cancelAnimationFrame(countRaf);
+  clearTimeout(scrambleTimeout);
+  clearTickTimers();
+  SFX.stopAmbient();
+  SFX.resetBlip();
+  touches.forEach(t => t.el.remove());
+  touches.clear();
+  usedColors.clear();
+  document.querySelectorAll(".win-label").forEach(e => e.remove());
+  hint.classList.remove("show");
+  showTimer(false);
+  particles.length = 0;
+  state = S.IDLE;
+  hero.style.opacity = "1";
+}
+
+/* ── Seg control: absorb all touch events so they never reach the game ── */
+const segEl = document.querySelector(".seg");
+["touchstart","touchend","touchmove","touchcancel"].forEach(ev => {
+  segEl.addEventListener(ev, e => { e.stopPropagation(); }, { passive: true });
+});
+
+/* ── Touch event handling ───────────────────────────────── */
+document.addEventListener("touchstart", e => {
+  e.preventDefault();
+  SFX.unlock();
+  if (state === S.DONE) { reset(); return; }
+
+  for (const t of e.changedTouches) {
+    if (touches.size >= 10) break;
+    const ci = acquireColor();
+    const el = createBlob(t.identifier, t.clientX, t.clientY, ci);
+    touches.set(t.identifier, { id: t.identifier, x: t.clientX, y: t.clientY, el, colorIdx: ci });
+    SFX.spawn();
+  }
+
+  hero.style.opacity = "0";
+
+  if (state === S.IDLE) {
+    startCountdown(false);
+  } else if (state === S.COUNTING) {
+    // Restart if still early in countdown
+    if (performance.now() - countStart < RESTART_WINDOW_MS) {
+      startCountdown(true);
+    }
+  }
+}, { passive: false });
+
+document.addEventListener("touchmove", e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const entry = touches.get(t.identifier);
+    if (entry) {
+      entry.x = t.clientX; entry.y = t.clientY;
+      entry.el.style.left = t.clientX + "px";
+      entry.el.style.top  = t.clientY + "px";
+    }
+  }
+}, { passive: false });
+
+document.addEventListener("touchend", e => {
+  e.preventDefault();
+  if (state === S.DONE || state === S.SCRAMBLE) return;
+
+  for (const t of e.changedTouches) {
+    const entry = touches.get(t.identifier);
+    if (entry) {
+      entry.el.style.animation = "blobLose 0.3s ease forwards";
+      const el = entry.el; setTimeout(() => el.remove(), 350);
+      releaseColor(entry.colorIdx);
+      touches.delete(t.identifier);
+    }
+  }
+
+  if (touches.size === 0 && state === S.COUNTING) cancelCountdown();
+}, { passive: false });
+
+document.addEventListener("touchcancel", e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const entry = touches.get(t.identifier);
+    if (entry) { entry.el.remove(); releaseColor(entry.colorIdx); touches.delete(t.identifier); }
+  }
+  if (touches.size === 0 && state === S.COUNTING) cancelCountdown();
+}, { passive: false });
+
+/* ── Mouse fallback (desktop testing) ───────────────────── */
+let mouseLive = false;
+document.addEventListener("mousedown", e => {
+  if (e.button !== 0 || e.target.closest(".seg")) return;
+  SFX.unlock();
+  if (state === S.DONE) { reset(); return; }
+  mouseLive = true;
+  const ci = acquireColor();
+  const el = createBlob("_m", e.clientX, e.clientY, ci);
+  touches.set("_m", { id: "_m", x: e.clientX, y: e.clientY, el, colorIdx: ci });
+  SFX.spawn();
+  hero.style.opacity = "0";
+  if (state === S.IDLE) startCountdown(false);
+});
+
+document.addEventListener("mousemove", e => {
+  if (!mouseLive) return;
+  const entry = touches.get("_m");
+  if (entry) {
+    entry.x = e.clientX; entry.y = e.clientY;
+    entry.el.style.left = e.clientX + "px";
+    entry.el.style.top  = e.clientY + "px";
+  }
+});
+
+document.addEventListener("mouseup", () => {
+  if (!mouseLive || state === S.DONE || state === S.SCRAMBLE) return;
+  mouseLive = false;
+  const entry = touches.get("_m");
+  if (entry) {
+    entry.el.style.animation = "blobLose 0.3s ease forwards";
+    const el = entry.el; setTimeout(() => el.remove(), 350);
+    releaseColor(entry.colorIdx);
+    touches.delete("_m");
+  }
+  if (touches.size === 0 && state === S.COUNTING) cancelCountdown();
+});
+
+/* ── Particles ───────────────────────────────────────────── */
+let particles = [];
+
+function spawnParticles(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const angle = (Math.PI * 2 * i / n) + (Math.random() - 0.5) * 0.7;
+    const speed = 3.5 + Math.random() * 8;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      r: 3 + Math.random() * 5,
+      color,
+      alpha: 1,
+      decay: 0.016 + Math.random() * 0.024,
+    });
+  }
+}
+
+(function animParticles() {
+  pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+  particles = particles.filter(p => p.alpha > 0.01);
+  for (const p of particles) {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vy += 0.18;   // gravity
+    p.vx *= 0.97;
+    p.alpha -= p.decay;
+    pCtx.globalAlpha = Math.max(0, p.alpha);
+    pCtx.fillStyle = p.color;
+    pCtx.beginPath();
+    pCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    pCtx.fill();
+  }
+  pCtx.globalAlpha = 1;
+  requestAnimationFrame(animParticles);
+})();
+</script>
+</body>
+</html>
